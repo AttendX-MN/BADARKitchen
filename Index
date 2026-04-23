@@ -9,7 +9,7 @@ import {
 
 // === GOOGLE APPS SCRIPT DATABASE SETUP ===
 // Paste the Web App URL from your Google Apps Script Deployment here:
-const GAS_URL = 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbwARKwsooKIRym-ECohyHJ73aieGdEh_aM_bFmJuGiOalCoAV7yRPZgs7ac4lAYH181/exec';
 
 // --- MOCK DATA & CONFIG ---
 const INITIAL_MENU = [
