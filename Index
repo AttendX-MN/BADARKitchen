@@ -1,0 +1,1255 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  ShoppingBag, Search, Plus, Minus, Check, Clock, Bell, 
+  Menu as MenuIcon, User, ChevronLeft, ChevronRight, 
+  LayoutDashboard, ClipboardList, Settings, LogOut, 
+  MoreVertical, Edit2, Trash2, Smartphone, Monitor, ChefHat,
+  Users, BarChart2, Package, MessageCircle, X
+} from 'lucide-react';
+
+// === GOOGLE APPS SCRIPT DATABASE SETUP ===
+// Paste the Web App URL from your Google Apps Script Deployment here:
+const GAS_URL = 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL';
+
+// --- MOCK DATA & CONFIG ---
+const INITIAL_MENU = [
+  { id: 'm1', name: 'Cheesy Beef Burger', desc: 'Burger daging dengan keju leleh, sos khas', price: 12.90, cost: 5.20, stock: 45, available: true, img: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=300&q=80', category: 'Makanan' },
+  { id: 'm2', name: 'Nasi Ayam Penyet', desc: 'Ayam penyet dengan sambal belacan dan ulam', price: 9.90, cost: 4.00, stock: 100, available: true, img: 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?auto=format&fit=crop&w=300&q=80', category: 'Makanan' },
+  { id: 'm3', name: 'Spaghetti Carbonara', desc: 'Krim carbonara pekat dengan sosej', price: 11.90, cost: 4.50, stock: 30, available: true, img: 'https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?auto=format&fit=crop&w=300&q=80', category: 'Makanan' },
+  { id: 'm4', name: 'Air Milo Ais', desc: 'Milo ais kaw pekat melekat', price: 3.90, cost: 1.20, stock: 20, available: true, img: 'https://images.unsplash.com/photo-1541658016709-82535e94bc69?auto=format&fit=crop&w=300&q=80', category: 'Minuman' },
+  { id: 'm5', name: 'Teh Ais Limau', desc: 'Teh O ais dengan perahan limau nipis', price: 2.50, cost: 0.80, stock: 50, available: true, img: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?auto=format&fit=crop&w=300&q=80', category: 'Minuman' }
+];
+
+const generateOrderId = () => `#A${Math.floor(100 + Math.random() * 900)}`;
+const PRIMARY_COLOR = 'bg-indigo-600';
+const TEXT_PRIMARY = 'text-indigo-600';
+
+// --- MAIN APP COMPONENT ---
+export default function App() {
+  const [currentRole, setCurrentRole] = useState('customer'); 
+  const [menu, setMenu] = useState([]); // Will load from DB
+  const [orders, setOrders] = useState([]); // Will load from DB
+  const [customerSessionOrder, setCustomerSessionOrder] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch Database Data on Mount
+  useEffect(() => {
+    if (GAS_URL === 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL') {
+      // Fallback: If you haven't put your URL in yet, load mock data for testing
+      setMenu(INITIAL_MENU);
+      setIsLoading(false);
+      return;
+    }
+
+    fetch(`${GAS_URL}?action=getInitialData`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.menu) setMenu(data.menu);
+        if (data.orders) {
+          // Convert string timestamps back to Date objects
+          setOrders(data.orders.map(o => ({...o, timestamp: new Date(o.timestamp)})));
+        }
+        setIsLoading(false);
+      })
+      .catch(err => {
+        console.error("Failed to load Database", err);
+        setMenu(INITIAL_MENU); // Fallback on failure
+        setIsLoading(false);
+      });
+  }, []);
+
+  const placeOrder = (customerDetails, cartItems, total) => {
+    const newOrder = {
+      id: generateOrderId(),
+      customerName: customerDetails.name,
+      phone: customerDetails.phone,
+      items: cartItems,
+      total,
+      status: 'Pending',
+      timestamp: new Date(),
+    };
+    
+    // 1. Update UI Instantly (Optimistic update)
+    setOrders(prev => [newOrder, ...prev]);
+    setCustomerSessionOrder(newOrder);
+
+    // 2. Save to Google Sheets Database
+    if (GAS_URL !== 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL') {
+      fetch(GAS_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'placeOrder', payload: newOrder }),
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' } // 'text/plain' prevents CORS preflight errors in GAS
+      }).catch(err => console.error("Database save error:", err));
+    }
+  };
+
+  const updateOrderStatus = (orderId, newStatus) => {
+    // 1. Update UI Instantly
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+    if (customerSessionOrder?.id === orderId) {
+      setCustomerSessionOrder(prev => ({ ...prev, status: newStatus }));
+    }
+
+    // 2. Save to Google Sheets Database
+    if (GAS_URL !== 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL') {
+      fetch(GAS_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'updateOrderStatus', payload: { id: orderId, status: newStatus } }),
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+      }).catch(err => console.error("Database save error:", err));
+    }
+  };
+
+  const toggleMenuItem = (id) => {
+    // 1. Update UI Instantly
+    setMenu(prev => prev.map(m => m.id === id ? { ...m, available: !m.available } : m));
+
+    // 2. Save to Google Sheets Database
+    if (GAS_URL !== 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL') {
+      fetch(GAS_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'toggleMenuItem', payload: { id } }),
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+      }).catch(err => console.error("Database save error:", err));
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 flex-col gap-4">
+        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-indigo-600 font-bold tracking-widest uppercase text-sm">Syncing Database...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-100 font-sans text-gray-900 selection:bg-indigo-500 selection:text-white">
+      {currentRole === 'customer' && <CustomerApp menu={menu} placeOrder={placeOrder} sessionOrder={customerSessionOrder} />}
+      {currentRole === 'kitchen' && <KitchenApp orders={orders} updateOrderStatus={updateOrderStatus} menu={menu} toggleMenuItem={toggleMenuItem} />}
+      {currentRole === 'admin' && <AdminApp orders={orders} menu={menu} />}
+
+      {/* Floating Role Switcher Widget */}
+      <div className="fixed bottom-6 right-6 z-[100] flex items-center bg-white rounded-full p-1.5 shadow-xl border border-gray-200">
+        <button onClick={() => setCurrentRole('customer')} className={`p-2 rounded-full mx-1 transition-all flex items-center gap-2 ${currentRole === 'customer' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:bg-gray-100'}`}>
+          <Smartphone size={18} />
+          {currentRole === 'customer' && <span className="text-sm font-bold pr-2">Customer</span>}
+        </button>
+        <button onClick={() => setCurrentRole('kitchen')} className={`p-2 rounded-full mx-1 transition-all flex items-center gap-2 ${currentRole === 'kitchen' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:bg-gray-100'}`}>
+          <ChefHat size={18} />
+          {currentRole === 'kitchen' && <span className="text-sm font-bold pr-2">Kitchen</span>}
+        </button>
+        <button onClick={() => setCurrentRole('admin')} className={`p-2 rounded-full mx-1 transition-all flex items-center gap-2 ${currentRole === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:bg-gray-100'}`}>
+          <Monitor size={18} />
+          {currentRole === 'admin' && <span className="text-sm font-bold pr-2">Admin</span>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 1. CUSTOMER INTERFACE (Mobile First Layout)
+// ==========================================
+function CustomerApp({ menu, placeOrder, sessionOrder }) {
+  const [cart, setCart] = useState([]);
+  const [view, setView] = useState('menu'); // menu, checkout, success, status
+  const [customerForm, setCustomerForm] = useState({ name: '', phone: '' });
+  const [showReadyPopup, setShowReadyPopup] = useState(false);
+
+  // Sync view with session order
+  useEffect(() => {
+    if (sessionOrder && view === 'checkout') setView('success');
+    if (sessionOrder?.status === 'Ready') setShowReadyPopup(true);
+  }, [sessionOrder, view]);
+
+  const activeMenu = menu.filter(item => item.available);
+  
+  const updateCart = (item, delta) => {
+    setCart(prev => {
+      const existing = prev.find(i => i.id === item.id);
+      if (existing) {
+        const newQty = existing.qty + delta;
+        if (newQty <= 0) return prev.filter(i => i.id !== item.id);
+        return prev.map(i => i.id === item.id ? { ...i, qty: newQty } : i);
+      }
+      if (delta > 0) return [...prev, { ...item, qty: 1 }];
+      return prev;
+    });
+  };
+
+  const getQty = (id) => cart.find(i => i.id === id)?.qty || 0;
+  const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+  const cartCount = cart.reduce((sum, item) => sum + item.qty, 0);
+
+  const handlePlaceOrder = (e) => {
+    e.preventDefault();
+    if (!customerForm.name || !customerForm.phone) return;
+    placeOrder(customerForm, cart, cartTotal);
+    setCart([]);
+  };
+
+  return (
+    <div className="max-w-[400px] mx-auto bg-white min-h-screen shadow-2xl relative overflow-x-hidden sm:border-x border-gray-200 flex flex-col">
+      
+      {/* --- MENU VIEW --- */}
+      {view === 'menu' && (
+        <>
+          <div className="px-5 pt-6 pb-2 sticky top-0 bg-white z-10">
+            <div className="flex items-center justify-between mb-6">
+              <MenuIcon className="text-gray-700" />
+              <div className="text-center">
+                <h1 className="text-xl font-bold text-gray-900 tracking-tight">BADAR</h1>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest font-semibold -mt-1">Kitchen</p>
+              </div>
+              <div className="relative">
+                <Bell className="text-gray-700" />
+                <span className="absolute -top-1 -right-1 bg-red-500 w-2 h-2 rounded-full"></span>
+              </div>
+            </div>
+
+            <h2 className="text-2xl font-extrabold text-gray-900 leading-tight">Makanan Sedap,<br/>Order Senang</h2>
+            <p className="text-xs text-gray-500 mt-1 mb-4 flex items-center gap-1">
+              Terima kasih atas sokongan anda! <span className="text-red-500">❤️</span>
+            </p>
+
+            <div className="relative mb-4">
+              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input type="text" placeholder="Cari makanan..." className="w-full bg-gray-100 text-sm rounded-full py-2.5 pl-10 pr-4 outline-none focus:ring-2 focus:ring-indigo-100" />
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              {['Semua', 'Makanan', 'Minuman', 'Combo'].map((cat, i) => (
+                <button key={cat} className={`px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${i === 0 ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600'}`}>
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex-1 px-5 pb-24 overflow-y-auto">
+            <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-1">🔥 Popular</h3>
+            <div className="space-y-4">
+              {activeMenu.map(item => (
+                <div key={item.id} className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 flex gap-4">
+                  <img src={item.img} alt={item.name} className="w-20 h-20 object-cover rounded-xl shadow-sm" />
+                  <div className="flex-1 flex flex-col justify-between py-0.5">
+                    <div>
+                      <h4 className="font-bold text-sm text-gray-900 leading-tight">{item.name}</h4>
+                      <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-2">{item.desc}</p>
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="font-bold text-sm text-gray-900">RM {item.price.toFixed(2)}</span>
+                      
+                      {getQty(item.id) === 0 ? (
+                        <button onClick={() => updateCart(item, 1)} className="bg-indigo-600 text-white w-6 h-6 flex items-center justify-center rounded hover:bg-indigo-700 active:scale-95 transition-all">
+                          <Plus size={14} />
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-3 border border-gray-200 rounded-lg p-0.5">
+                          <button onClick={() => updateCart(item, -1)} className="p-1 active:scale-95 text-gray-600">
+                            <Minus size={12} />
+                          </button>
+                          <span className="text-xs font-bold w-3 text-center">{getQty(item.id)}</span>
+                          <button onClick={() => updateCart(item, 1)} className="p-1 active:scale-95 text-gray-600">
+                            <Plus size={12} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {cartCount > 0 && (
+            <div className="fixed bottom-0 left-0 right-0 max-w-[400px] mx-auto p-4 z-20 bg-white">
+              <div className="bg-indigo-600 text-white rounded-2xl p-4 shadow-lg shadow-indigo-600/30 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform"
+                   onClick={() => setView('checkout')}>
+                <div className="font-semibold text-sm">
+                  {cartCount} Item • RM {cartTotal.toFixed(2)}
+                </div>
+                <div className="bg-white text-indigo-600 px-4 py-1.5 rounded-full text-sm font-bold">
+                  Lihat Troli
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* --- CHECKOUT VIEW --- */}
+      {view === 'checkout' && (
+        <div className="flex flex-col h-full bg-white">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-4">
+            <button onClick={() => setView('menu')} className="text-gray-600"><ChevronLeft size={24} /></button>
+            <h2 className="text-lg font-bold">Maklumat Anda</h2>
+          </div>
+          
+          <div className="p-5 flex-1">
+            <p className="text-sm text-gray-500 mb-6">Sila isi maklumat untuk membuat pesanan.</p>
+            
+            <form id="orderForm" onSubmit={handlePlaceOrder} className="space-y-5">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Nama Penuh</label>
+                <input required type="text" value={customerForm.name} onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-600 bg-gray-50"
+                  placeholder="Ali Bin Ahmad" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Nombor Telefon</label>
+                <input required type="tel" value={customerForm.phone} onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-600 bg-gray-50"
+                  placeholder="012-345 6789" />
+              </div>
+            </form>
+          </div>
+
+          <div className="p-5">
+            <button form="orderForm" type="submit" className="w-full bg-indigo-600 text-white rounded-xl py-3.5 font-bold shadow-lg shadow-indigo-600/30 active:scale-[0.98] transition-all">
+              Buat Pesanan
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- SUCCESS VIEW --- */}
+      {view === 'success' && sessionOrder && (
+        <div className="flex flex-col items-center justify-center h-full p-6 text-center animate-fade-in">
+          <div className="bg-purple-100 p-4 rounded-full mb-6">
+            <div className="bg-indigo-600 text-white p-3 rounded-full shadow-lg shadow-indigo-600/40">
+              <Check size={32} />
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Pesanan Dibuat!</h2>
+          <p className="text-gray-500 text-sm mb-8">Terima kasih, pesanan anda telah diterima.</p>
+          
+          <div className="bg-gray-50 w-full rounded-2xl p-6 border border-gray-100 mb-8">
+            <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Order Number</p>
+            <div className="text-4xl font-black text-indigo-600 mb-2">{sessionOrder.id}</div>
+            <p className="text-xs text-gray-400">Simpan nombor ini untuk semakan.</p>
+          </div>
+
+          <button onClick={() => setView('status')} className="w-full bg-indigo-600 text-white rounded-xl py-3.5 font-bold shadow-lg shadow-indigo-600/30 mb-4">
+            Lihat Status Pesanan
+          </button>
+          
+          <div className="flex items-center justify-center gap-2 text-gray-500 mb-8">
+            <Clock size={16} />
+            <span className="text-sm font-medium">Anggaran siap dalam <strong>15 - 20 minit</strong></span>
+          </div>
+
+          <button onClick={() => { setView('menu'); setCustomerSessionOrder(null); }} className="text-sm text-gray-500 font-semibold hover:text-gray-900">
+            Kembali ke Menu
+          </button>
+        </div>
+      )}
+
+      {/* --- STATUS VIEW --- */}
+      {view === 'status' && sessionOrder && (
+        <div className="flex flex-col h-full bg-white">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-4">
+            <button onClick={() => setView('success')} className="text-gray-600"><ChevronLeft size={24} /></button>
+            <h2 className="text-lg font-bold">Status Pesanan</h2>
+          </div>
+
+          <div className="p-6">
+            <h3 className="text-xl font-bold mb-1">Order {sessionOrder.id}</h3>
+            <p className="text-sm text-gray-500 mb-8">Thank you, {sessionOrder.customerName}!</p>
+
+            <div className="relative border-l border-gray-200 ml-4 space-y-8 pb-4">
+              {[
+                { state: 'Pending', label: 'Pesanan Diterima', time: sessionOrder.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) },
+                { state: 'Preparing', label: 'Sedang Disediakan', time: '10:35 AM' }, // Mock time
+                { state: 'Ready', label: 'Makanan Dah Siap', time: 'Menunggu' },
+                { state: 'Completed', label: 'Selesai', time: 'Menunggu' }
+              ].map((step, idx) => {
+                const statusSteps = ['Pending', 'Preparing', 'Ready', 'Completed'];
+                const currentIdx = statusSteps.indexOf(sessionOrder.status);
+                const isCompleted = currentIdx >= idx;
+                const isCurrent = currentIdx === idx;
+                
+                return (
+                  <div key={step.state} className="relative pl-6">
+                    <div className={`absolute -left-[11px] top-0 w-5 h-5 rounded-full flex items-center justify-center ${isCompleted ? 'bg-indigo-600 text-white' : 'bg-white border-2 border-gray-200'}`}>
+                      {isCompleted && <Check size={12} strokeWidth={4} />}
+                    </div>
+                    <div className="flex justify-between items-start -mt-0.5">
+                      <h4 className={`text-sm font-bold ${isCompleted ? 'text-gray-900' : 'text-gray-400'}`}>{step.label}</h4>
+                      <span className={`text-xs ${isCompleted ? 'text-gray-500' : 'text-gray-300'}`}>
+                        {isCompleted && idx <= currentIdx ? new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : step.time}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            
+            <p className="text-xs text-gray-400 text-center mt-12 bg-gray-50 p-3 rounded-lg">
+              Kami akan maklumkan bila makanan anda siap!
+            </p>
+          </div>
+
+          {/* Ready Popup Notification */}
+          {showReadyPopup && (
+            <div className="fixed inset-0 z-50 flex items-start justify-center bg-gray-900/40 p-4 backdrop-blur-sm">
+              <div className="bg-white w-full max-w-[360px] rounded-2xl p-6 shadow-2xl mt-20 text-center relative animate-fade-in-up">
+                <button onClick={() => setShowReadyPopup(false)} className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"><X size={20} /></button>
+                <div className="text-4xl mb-3">🎉</div>
+                <h3 className="text-xl font-bold text-gray-900 mb-1">Makanan Dah Siap!!!</h3>
+                <p className="text-gray-600 font-semibold mb-2">Order {sessionOrder.id} anda sudah siap.</p>
+                <p className="text-sm text-gray-500 mb-6">Sila ambil makanan anda di kaunter. Terima kasih!</p>
+                <button onClick={() => {setShowReadyPopup(false); setView('menu'); setCustomerSessionOrder(null);}} className="w-full bg-indigo-600 text-white rounded-xl py-3 font-bold">
+                  Terima Kasih!
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// 2. KITCHEN INTERFACE (Tablet / Desktop)
+// ==========================================
+function KitchenApp({ orders, updateOrderStatus, menu, toggleMenuItem }) {
+  const activeOrders = orders.filter(o => o.status !== 'Completed');
+  const [filter, setFilter] = useState('Semua');
+  const [activeTab, setActiveTab] = useState('dashboard');
+
+  const filteredOrders = activeOrders.filter(o => {
+    if (filter === 'Semua') return true;
+    return o.status === filter;
+  });
+
+  const counts = {
+    Semua: activeOrders.length,
+    Pending: activeOrders.filter(o => o.status === 'Pending').length,
+    Preparing: activeOrders.filter(o => o.status === 'Preparing').length,
+    Ready: activeOrders.filter(o => o.status === 'Ready').length
+  };
+
+  return (
+    <div className="min-h-screen flex bg-[#f8f9fc]">
+      {/* Dark Sidebar */}
+      <aside className="w-[240px] bg-[#1a1c2a] text-gray-300 flex flex-col fixed h-full z-20 shadow-xl">
+        <div className="p-6">
+          <h1 className="text-xl font-bold text-white tracking-tight">BADAR</h1>
+          <p className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">Kitchen</p>
+        </div>
+        <nav className="flex-1 px-4 space-y-2 mt-4">
+          <SidebarItem icon={<LayoutDashboard />} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+          <SidebarItem icon={<ClipboardList />} label="Orders" badge={counts.Semua} active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
+          <SidebarItem icon={<Package />} label="Menu Status" active={activeTab === 'menu'} onClick={() => setActiveTab('menu')} />
+          <SidebarItem icon={<Settings />} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+        </nav>
+        <div className="p-4 border-t border-gray-800">
+          <div className="flex items-center gap-3 bg-gray-800/50 p-3 rounded-xl">
+            <img src="https://i.pravatar.cc/100?img=11" alt="Profile" className="w-10 h-10 rounded-full border-2 border-indigo-500" />
+            <div>
+              <p className="font-semibold text-white text-sm">Kitchen Staff</p>
+              <p className="text-[10px] text-green-400 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-400"></span> Online</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 ml-[240px] flex">
+        {activeTab === 'dashboard' ? (
+          <>
+            {/* Left Area: Orders */}
+            <div className="flex-1 p-8 overflow-y-auto">
+              {/* Header */}
+              <div className="flex justify-between items-center mb-8">
+                <div className="flex items-center gap-4">
+                  <h2 className="text-2xl font-bold text-gray-900">Kitchen Dashboard</h2>
+                  <span className="text-xs font-semibold text-green-600 bg-green-100 px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span> Online
+                  </span>
+                </div>
+                <div className="flex items-center gap-6 text-sm font-semibold text-gray-600">
+                  {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} AM
+                  <Bell className="text-gray-400" />
+                </div>
+              </div>
+
+          {/* Filters */}
+          <div className="flex gap-3 mb-8">
+            {[
+              { id: 'Semua', label: 'Semua', count: counts.Semua, colors: 'bg-white text-gray-700 border-gray-200' },
+              { id: 'Pending', label: 'Pending', count: counts.Pending, colors: 'bg-orange-100 text-orange-700 border-orange-200' },
+              { id: 'Preparing', label: 'Preparing', count: counts.Preparing, colors: 'bg-blue-100 text-blue-700 border-blue-200' },
+              { id: 'Ready', label: 'Ready', count: counts.Ready, colors: 'bg-green-100 text-green-700 border-green-200' }
+            ].map(f => (
+              <button 
+                key={f.id} onClick={() => setFilter(f.id)}
+                className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${filter === f.id ? f.colors : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'} flex items-center gap-2`}
+              >
+                {f.label} ({f.count})
+              </button>
+            ))}
+          </div>
+
+          {/* Orders Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {filteredOrders.map(order => (
+              <KitchenOrderCard key={order.id} order={order} updateStatus={updateOrderStatus} />
+            ))}
+            {filteredOrders.length === 0 && (
+              <div className="col-span-full py-12 text-center text-gray-400 border-2 border-dashed border-gray-200 rounded-2xl">
+                Tiada pesanan untuk kategori ini.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Area: Menu Status Sidebar */}
+        <div className="w-[300px] bg-white border-l border-gray-200 p-6 flex flex-col h-screen sticky top-0">
+          <h3 className="font-bold text-gray-900 mb-6">Menu Status</h3>
+          <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+            {menu.map(item => (
+              <div key={item.id} className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
+                <span className={`text-sm font-medium ${item.available ? 'text-gray-700' : 'text-gray-400 line-through'}`}>{item.name}</span>
+                {/* Toggle Switch UI */}
+                <button 
+                  onClick={() => toggleMenuItem(item.id)}
+                  className={`w-10 h-5 rounded-full relative transition-colors ${item.available ? 'bg-green-500' : 'bg-gray-300'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 bg-white w-4 h-4 rounded-full transition-transform ${item.available ? 'translate-x-5' : 'translate-x-0'}`}></span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+        </>
+        ) : activeTab === 'orders' ? (
+          <div className="flex-1 p-8 overflow-y-auto w-full"><KitchenOrdersTab orders={orders} /></div>
+        ) : activeTab === 'menu' ? (
+          <div className="flex-1 p-8 overflow-y-auto w-full"><KitchenMenuTab menu={menu} toggleMenuItem={toggleMenuItem} /></div>
+        ) : activeTab === 'settings' ? (
+          <div className="flex-1 p-8 overflow-y-auto w-full"><KitchenSettingsTab /></div>
+        ) : null}
+      </main>
+    </div>
+  );
+}
+
+function KitchenOrderCard({ order, updateStatus }) {
+  const timeStr = order.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  
+  const statusConfig = {
+    Pending: { color: 'orange', action: 'Pending', next: 'Preparing', topBorder: 'border-orange-400', bgBtn: 'bg-orange-500 hover:bg-orange-600', textID: 'text-orange-500' },
+    Preparing: { color: 'blue', action: 'Preparing', next: 'Ready', topBorder: 'border-blue-400', bgBtn: 'bg-blue-500 hover:bg-blue-600', textID: 'text-blue-500' },
+    Ready: { color: 'green', action: 'Ready', next: 'Completed', topBorder: 'border-green-400', bgBtn: 'bg-green-500 hover:bg-green-600', textID: 'text-green-500' }
+  };
+  const conf = statusConfig[order.status];
+
+  return (
+    <div className={`bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden relative pt-1`}>
+      <div className={`absolute top-0 left-0 right-0 h-1.5 ${conf.topBorder} border-t-4`}></div>
+      <div className="p-5 flex-1">
+        <div className="flex justify-between items-start mb-4">
+          <h3 className={`text-xl font-black ${conf.textID}`}>{order.id}</h3>
+          <span className="text-xs font-semibold text-gray-500">{timeStr}</span>
+        </div>
+        
+        <div className="mb-4">
+          <p className="font-bold text-gray-900 text-sm">{order.customerName}</p>
+          <p className="text-xs text-gray-500">{order.phone}</p>
+        </div>
+        
+        <ul className="space-y-2 mb-6">
+          {order.items.map((item, idx) => (
+            <li key={idx} className="flex gap-3 text-sm text-gray-700">
+              <span className="font-bold text-gray-900 w-5">{item.qty}x</span>
+              <span className="leading-tight">{item.name}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      
+      <div className="p-4 bg-gray-50 border-t border-gray-100">
+        <button 
+          onClick={() => updateStatus(order.id, conf.next)}
+          className={`w-full py-2.5 rounded-lg font-bold text-white shadow-md active:scale-[0.98] transition-all flex items-center justify-center gap-2 ${conf.bgBtn}`}
+        >
+          {conf.action}
+          {order.status === 'Ready' && <Check size={16} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 3. ADMIN DASHBOARD (Desktop)
+// ==========================================
+function AdminApp({ orders, menu }) {
+  const completedOrders = orders.filter(o => o.status === 'Completed');
+  const activeOrders = orders.filter(o => o.status !== 'Completed');
+  const [activeTab, setActiveTab] = useState('dashboard');
+  
+  // Calculate mock daily metrics based on all orders for visual matching
+  const totalSales = orders.reduce((sum, o) => sum + o.total, 0);
+  const totalCost = orders.reduce((sum, order) => {
+    return sum + order.items.reduce((itemSum, item) => itemSum + (item.cost * item.qty), 0);
+  }, 0);
+  const profit = totalSales - totalCost;
+
+  return (
+    <div className="min-h-screen flex bg-[#f4f7f6]">
+      {/* Dark Sidebar */}
+      <aside className="w-[240px] bg-[#1a1c2a] text-gray-300 flex flex-col fixed h-full z-20 shadow-xl">
+        <div className="p-6">
+          <h1 className="text-xl font-bold text-white tracking-tight">BADAR</h1>
+          <p className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">Kitchen</p>
+        </div>
+        <nav className="flex-1 px-4 space-y-1.5 mt-2 overflow-y-auto">
+          <SidebarItem icon={<LayoutDashboard size={18} />} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+          <SidebarItem icon={<ClipboardList size={18} />} label="Orders" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
+          <SidebarItem icon={<Package size={18} />} label="Menu Management" active={activeTab === 'menu'} onClick={() => setActiveTab('menu')} />
+          <SidebarItem icon={<ClipboardList size={18} />} label="Inventory" active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} />
+          <SidebarItem icon={<BarChart2 size={18} />} label="Sales Report" active={activeTab === 'sales'} onClick={() => setActiveTab('sales')} />
+          <SidebarItem icon={<Users size={18} />} label="Customers" active={activeTab === 'customers'} onClick={() => setActiveTab('customers')} />
+          <SidebarItem icon={<Settings size={18} />} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+        </nav>
+        <div className="p-4 border-t border-gray-800">
+           <SidebarItem icon={<LogOut size={18} />} label="Logout" onClick={() => {}} />
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 ml-[240px] p-8 overflow-y-auto h-screen">
+        <header className="flex justify-between items-center mb-8">
+          <div className="flex items-center gap-4">
+            <h2 className="text-2xl font-bold text-gray-900 capitalize">{activeTab.replace('-', ' ')}</h2>
+            <span className="text-sm text-gray-500 font-medium">Jumaat, 24 Mei 2024</span>
+          </div>
+          <div className="flex items-center gap-3">
+             <span className="text-sm font-semibold text-gray-700">Cashier Admin</span>
+             <img src="https://i.pravatar.cc/100?img=5" alt="Profile" className="w-10 h-10 rounded-full border-2 border-gray-200" />
+          </div>
+        </header>
+
+        {activeTab === 'dashboard' ? (
+          <>
+            {/* KPI Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
+              <DashboardKpi title="Total Sales Hari ini" value={`RM ${totalSales.toFixed(2)}`} icon={<BarChart2 className="text-orange-500" />} trend="+12.5% berbanding semalam" />
+              <DashboardKpi title="Total Orders" value={orders.length} icon={<ClipboardList className="text-red-400" />} trend="+8.2% berbanding semalam" />
+              <DashboardKpi title="Keuntungan (Anggaran)" value={`RM ${profit.toFixed(2)}`} icon={<BarChart2 className="text-green-500" />} trend="+15.3% berbanding semalam" />
+              <DashboardKpi title="Active Orders" value={activeOrders.length} icon={<ClipboardList className="text-purple-500" />} subtext="Sedang dalam proses" />
+            </div>
+
+        {/* Middle Row: Orders & Chart */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          {/* Orders Live */}
+          <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-900">Orders Live</h3>
+              <button className="text-indigo-600 bg-indigo-50 px-4 py-1.5 rounded-lg text-sm font-bold">Lihat Semua Orders</button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="text-gray-500 font-medium border-b border-gray-100">
+                    <th className="pb-3">Order ID</th>
+                    <th className="pb-3">Customer</th>
+                    <th className="pb-3">Items</th>
+                    <th className="pb-3">Total</th>
+                    <th className="pb-3">Status</th>
+                    <th className="pb-3">Time</th>
+                    <th className="pb-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {orders.slice(0, 6).map(order => (
+                    <tr key={order.id} className="hover:bg-gray-50">
+                      <td className="py-3 font-bold text-gray-900">{order.id}</td>
+                      <td className="py-3 text-gray-700 font-medium">{order.customerName}</td>
+                      <td className="py-3 text-gray-500 truncate max-w-[200px]">
+                        {order.items.map(i => `${i.qty}x ${i.name}`).join(', ')}
+                      </td>
+                      <td className="py-3 font-semibold text-gray-900">RM {order.total.toFixed(2)}</td>
+                      <td className="py-3"><StatusPill status={order.status} /></td>
+                      <td className="py-3 text-gray-500">{order.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                      <td className="py-3 text-right">
+                        <a href={`https://wa.me/6${order.phone}`} target="_blank" rel="noreferrer" 
+                           className="inline-flex items-center justify-center w-8 h-8 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-colors">
+                          <MessageCircle size={16} />
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Sales Overview Chart (Mock) */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-900">Sales Overview</h3>
+              <select className="bg-gray-50 border border-gray-200 text-sm rounded-lg px-2 py-1 text-gray-600 outline-none">
+                <option>Hari ini</option>
+              </select>
+            </div>
+            {/* Simple Line Chart Visual using SVG */}
+            <div className="flex-1 relative min-h-[150px] mb-6">
+               <svg viewBox="0 0 400 150" className="w-full h-full overflow-visible">
+                 {/* Grid lines */}
+                 {[0, 30, 60, 90, 120, 150].map(y => (
+                    <line key={y} x1="0" y1={y} x2="400" y2={y} stroke="#f3f4f6" strokeWidth="1" />
+                 ))}
+                 {/* Y Axis labels */}
+                 <text x="-10" y="10" fontSize="10" fill="#9ca3af" textAnchor="end">1.4K</text>
+                 <text x="-10" y="75" fontSize="10" fill="#9ca3af" textAnchor="end">700</text>
+                 <text x="-10" y="150" fontSize="10" fill="#9ca3af" textAnchor="end">0</text>
+                 {/* X Axis labels */}
+                 <text x="0" y="170" fontSize="10" fill="#9ca3af">12AM</text>
+                 <text x="100" y="170" fontSize="10" fill="#9ca3af">8AM</text>
+                 <text x="200" y="170" fontSize="10" fill="#9ca3af">12PM</text>
+                 <text x="300" y="170" fontSize="10" fill="#9ca3af">4PM</text>
+                 <text x="400" y="170" fontSize="10" fill="#9ca3af" textAnchor="end">12AM</text>
+                 
+                 {/* Line & Area */}
+                 <path d="M0,150 L20,130 L60,110 L100,120 L150,70 L200,60 L250,80 L300,30 L350,20 L400,10" fill="none" stroke="#2dd4bf" strokeWidth="3" strokeLinejoin="round" />
+                 <path d="M0,150 L20,130 L60,110 L100,120 L150,70 L200,60 L250,80 L300,30 L350,20 L400,10 L400,150 Z" fill="url(#grad)" opacity="0.2" />
+                 <defs>
+                   <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+                     <stop offset="0%" stopColor="#2dd4bf" />
+                     <stop offset="100%" stopColor="transparent" />
+                   </linearGradient>
+                 </defs>
+                 {/* Dots */}
+                 <circle cx="300" cy="30" r="4" fill="#2dd4bf" stroke="white" strokeWidth="2" />
+                 <circle cx="350" cy="20" r="4" fill="#2dd4bf" stroke="white" strokeWidth="2" />
+                 <circle cx="400" cy="10" r="4" fill="#2dd4bf" stroke="white" strokeWidth="2" />
+               </svg>
+            </div>
+            
+            <div>
+              <h4 className="font-bold text-gray-900 mb-3 text-sm">Top Selling Items</h4>
+              <div className="space-y-3">
+                {[
+                  { name: 'Cheesy Beef Burger', count: 35 },
+                  { name: 'Nasi Ayam Penyet', count: 28 },
+                  { name: 'Spaghetti Carbonara', count: 18 },
+                  { name: 'Air Milo Ais', count: 15 }
+                ].map((item, i) => (
+                   <div key={i} className="flex justify-between items-center text-sm">
+                     <span className="text-gray-700 font-medium">{i+1}. {item.name}</span>
+                     <span className="font-bold text-gray-900">{item.count}</span>
+                   </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Row: Menu Management */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+           <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-900">Menu Management</h3>
+              <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md shadow-indigo-600/20 hover:bg-indigo-700 transition-colors flex items-center gap-2">
+                <Plus size={16} /> Add New Menu
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="text-gray-500 font-medium border-b border-gray-100">
+                    <th className="pb-3">Menu</th>
+                    <th className="pb-3">Price (RM)</th>
+                    <th className="pb-3">Cost (RM)</th>
+                    <th className="pb-3">Stock</th>
+                    <th className="pb-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {menu.map(item => (
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="py-3 flex items-center gap-3">
+                        <img src={item.img} alt="" className="w-10 h-10 rounded object-cover" />
+                        <span className="font-bold text-gray-900">{item.name}</span>
+                      </td>
+                      <td className="py-3 text-gray-700">{item.price.toFixed(2)}</td>
+                      <td className="py-3 text-gray-500">{item.cost.toFixed(2)}</td>
+                      <td className="py-3 text-green-500 font-semibold">{item.stock > 0 ? 'Tersedia' : 'Habis'}</td>
+                      <td className="py-3 text-right">
+                        <div className="flex justify-end gap-2 text-gray-400">
+                          <button className="hover:text-indigo-600 border border-gray-200 p-1.5 rounded bg-white"><Edit2 size={14} /></button>
+                          <button className="hover:text-red-600 border border-gray-200 p-1.5 rounded bg-white"><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+        </div>
+        </>
+        ) : activeTab === 'orders' ? (
+          <AdminOrdersTab orders={orders} />
+        ) : activeTab === 'menu' ? (
+          <AdminMenuTab menu={menu} />
+        ) : activeTab === 'inventory' ? (
+          <AdminInventoryTab menu={menu} />
+        ) : activeTab === 'sales' ? (
+          <AdminSalesTab orders={orders} />
+        ) : activeTab === 'customers' ? (
+          <AdminCustomersTab orders={orders} />
+        ) : activeTab === 'settings' ? (
+          <AdminSettingsTab />
+        ) : null}
+
+      </main>
+    </div>
+  );
+}
+
+// Helpers
+function SidebarItem({ icon, label, active, badge, onClick }) {
+  return (
+    <button onClick={onClick} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all text-sm font-medium ${active ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+      <div className="flex items-center gap-3">
+        {icon}
+        {label}
+      </div>
+      {badge !== undefined && (
+        <span className="bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">{badge}</span>
+      )}
+    </button>
+  );
+}
+
+function DashboardKpi({ title, value, icon, trend, subtext }) {
+  return (
+    <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex flex-col justify-between">
+      <div className="flex justify-between items-start mb-2">
+        <div className="bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+          {icon}
+        </div>
+      </div>
+      <div>
+        <p className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-1">{title}</p>
+        <h4 className="text-3xl font-black text-gray-900">{value}</h4>
+        {trend && <p className="text-[11px] font-semibold text-green-500 mt-2">{trend}</p>}
+        {subtext && <p className="text-[11px] font-semibold text-gray-400 mt-2">{subtext}</p>}
+      </div>
+    </div>
+  );
+}
+
+function StatusPill({ status }) {
+  const styles = {
+    'Pending': 'bg-orange-50 text-orange-600 border-orange-200',
+    'Preparing': 'bg-blue-50 text-blue-600 border-blue-200',
+    'Ready': 'bg-green-50 text-green-600 border-green-200',
+    'Completed': 'bg-gray-50 text-gray-600 border-gray-200'
+  };
+  return (
+    <span className={`px-2.5 py-1 text-[11px] font-bold rounded border ${styles[status]}`}>
+      {status}
+    </span>
+  );
+}
+
+function AdminOrdersTab({ orders }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-lg font-bold text-gray-900">All Orders History</h3>
+        <div className="flex gap-2">
+          <input type="text" placeholder="Search orders..." className="border border-gray-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="text-gray-500 font-medium border-b border-gray-100">
+              <th className="pb-3">Order ID</th>
+              <th className="pb-3">Customer</th>
+              <th className="pb-3">Items</th>
+              <th className="pb-3">Total</th>
+              <th className="pb-3">Status</th>
+              <th className="pb-3">Time</th>
+              <th className="pb-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {orders.map(order => (
+              <tr key={order.id} className="hover:bg-gray-50">
+                <td className="py-3 font-bold text-gray-900">{order.id}</td>
+                <td className="py-3 text-gray-700 font-medium">{order.customerName}</td>
+                <td className="py-3 text-gray-500 truncate max-w-[200px]">
+                  {order.items.map(i => `${i.qty}x ${i.name}`).join(', ')}
+                </td>
+                <td className="py-3 font-semibold text-gray-900">RM {order.total.toFixed(2)}</td>
+                <td className="py-3"><StatusPill status={order.status} /></td>
+                <td className="py-3 text-gray-500">{order.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                <td className="py-3 text-right">
+                  <a href={`https://wa.me/6${order.phone}`} target="_blank" rel="noreferrer" 
+                     className="inline-flex items-center justify-center w-8 h-8 rounded bg-green-100 text-green-600 hover:bg-green-200 transition-colors">
+                    <MessageCircle size={16} />
+                  </a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AdminMenuTab({ menu }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+       <div className="flex justify-between items-center mb-6">
+          <h3 className="text-lg font-bold text-gray-900">Menu Management</h3>
+          <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md shadow-indigo-600/20 hover:bg-indigo-700 transition-colors flex items-center gap-2">
+            <Plus size={16} /> Add New Menu
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="text-gray-500 font-medium border-b border-gray-100">
+                <th className="pb-3">Menu Item</th>
+                <th className="pb-3">Category</th>
+                <th className="pb-3">Price (RM)</th>
+                <th className="pb-3">Cost (RM)</th>
+                <th className="pb-3">Status</th>
+                <th className="pb-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {menu.map(item => (
+                <tr key={item.id} className="hover:bg-gray-50">
+                  <td className="py-3 flex items-center gap-3">
+                    <img src={item.img} alt="" className="w-10 h-10 rounded object-cover" />
+                    <span className="font-bold text-gray-900">{item.name}</span>
+                  </td>
+                  <td className="py-3 text-gray-500">{item.category}</td>
+                  <td className="py-3 text-gray-700 font-semibold">{item.price.toFixed(2)}</td>
+                  <td className="py-3 text-gray-500">{item.cost.toFixed(2)}</td>
+                  <td className="py-3">
+                    <span className={`px-2.5 py-1 text-[11px] font-bold rounded border ${item.available ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                      {item.available ? 'Active' : 'Hidden'}
+                    </span>
+                  </td>
+                  <td className="py-3 text-right">
+                    <div className="flex justify-end gap-2 text-gray-400">
+                      <button className="hover:text-indigo-600 border border-gray-200 p-1.5 rounded bg-white"><Edit2 size={14} /></button>
+                      <button className="hover:text-red-600 border border-gray-200 p-1.5 rounded bg-white"><Trash2 size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+    </div>
+  );
+}
+
+function AdminInventoryTab({ menu }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+       <div className="flex justify-between items-center mb-6">
+          <h3 className="text-lg font-bold text-gray-900">Inventory Status</h3>
+          <button className="bg-gray-100 text-gray-600 px-4 py-2 rounded-lg text-sm font-bold border border-gray-200 hover:bg-gray-200 transition-colors">
+            Export Data
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="text-gray-500 font-medium border-b border-gray-100">
+                <th className="pb-3">Item Name</th>
+                <th className="pb-3">Category</th>
+                <th className="pb-3">Current Stock</th>
+                <th className="pb-3">Stock Status</th>
+                <th className="pb-3 text-right">Update Stock</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {menu.map(item => (
+                <tr key={item.id} className="hover:bg-gray-50">
+                  <td className="py-4 font-bold text-gray-900">{item.name}</td>
+                  <td className="py-4 text-gray-500">{item.category}</td>
+                  <td className="py-4 font-semibold text-gray-900">{item.stock} units</td>
+                  <td className="py-4">
+                    {item.stock > 20 ? (
+                       <span className="text-green-600 font-semibold flex items-center gap-1"><Check size={14}/> In Stock</span>
+                    ) : item.stock > 0 ? (
+                       <span className="text-orange-600 font-semibold flex items-center gap-1"><Bell size={14}/> Low Stock</span>
+                    ) : (
+                       <span className="text-red-600 font-semibold flex items-center gap-1"><X size={14}/> Out of Stock</span>
+                    )}
+                  </td>
+                  <td className="py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                       <input type="number" defaultValue={item.stock} className="w-20 border border-gray-200 rounded px-2 py-1 text-sm text-center outline-none focus:border-indigo-500" />
+                       <button className="bg-indigo-50 text-indigo-600 px-3 py-1 rounded text-sm font-bold hover:bg-indigo-100 transition-colors">Update</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+    </div>
+  );
+}
+
+function AdminSalesTab({ orders }) {
+  const totalSales = orders.reduce((sum, o) => sum + o.total, 0);
+  const totalCost = orders.reduce((sum, order) => {
+    return sum + order.items.reduce((itemSum, item) => itemSum + (item.cost * item.qty), 0);
+  }, 0);
+  const profit = totalSales - totalCost;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <DashboardKpi title="Total Revenue" value={`RM ${totalSales.toFixed(2)}`} icon={<BarChart2 className="text-indigo-500" />} />
+        <DashboardKpi title="Total Cost" value={`RM ${totalCost.toFixed(2)}`} icon={<Package className="text-orange-500" />} />
+        <DashboardKpi title="Net Profit" value={`RM ${profit.toFixed(2)}`} icon={<BarChart2 className="text-green-500" />} />
+      </div>
+      
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-lg font-bold text-gray-900">Revenue Over Time</h3>
+          <select className="bg-gray-50 border border-gray-200 text-sm rounded-lg px-2 py-1 text-gray-600 outline-none">
+            <option>This Week</option>
+          </select>
+        </div>
+        {/* Simple Line Chart Visual using SVG */}
+        <div className="flex-1 relative min-h-[300px]">
+           <svg viewBox="0 0 800 300" className="w-full h-full overflow-visible">
+             {/* Grid lines */}
+             {[0, 60, 120, 180, 240, 300].map(y => (
+                <line key={y} x1="0" y1={y} x2="800" y2={y} stroke="#f3f4f6" strokeWidth="1" />
+             ))}
+             {/* Y Axis labels */}
+             <text x="-10" y="10" fontSize="12" fill="#9ca3af" textAnchor="end">RM 2K</text>
+             <text x="-10" y="150" fontSize="12" fill="#9ca3af" textAnchor="end">RM 1K</text>
+             <text x="-10" y="300" fontSize="12" fill="#9ca3af" textAnchor="end">0</text>
+             {/* X Axis labels */}
+             <text x="0" y="320" fontSize="12" fill="#9ca3af">Mon</text>
+             <text x="160" y="320" fontSize="12" fill="#9ca3af">Tue</text>
+             <text x="320" y="320" fontSize="12" fill="#9ca3af">Wed</text>
+             <text x="480" y="320" fontSize="12" fill="#9ca3af">Thu</text>
+             <text x="640" y="320" fontSize="12" fill="#9ca3af">Fri</text>
+             <text x="800" y="320" fontSize="12" fill="#9ca3af" textAnchor="end">Sat</text>
+             
+             {/* Line & Area */}
+             <path d="M0,250 L160,200 L320,150 L480,180 L640,80 L800,40" fill="none" stroke="#6366f1" strokeWidth="4" strokeLinejoin="round" />
+             <path d="M0,250 L160,200 L320,150 L480,180 L640,80 L800,40 L800,300 L0,300 Z" fill="url(#gradSales)" opacity="0.2" />
+             <defs>
+               <linearGradient id="gradSales" x1="0" y1="0" x2="0" y2="1">
+                 <stop offset="0%" stopColor="#6366f1" />
+                 <stop offset="100%" stopColor="transparent" />
+               </linearGradient>
+             </defs>
+             {/* Dots */}
+             <circle cx="640" cy="80" r="6" fill="#6366f1" stroke="white" strokeWidth="3" />
+             <circle cx="800" cy="40" r="6" fill="#6366f1" stroke="white" strokeWidth="3" />
+           </svg>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminCustomersTab({ orders }) {
+  const customersMap = {};
+  orders.forEach(o => {
+    if(!customersMap[o.phone]) {
+      customersMap[o.phone] = { name: o.customerName, phone: o.phone, spent: 0, orders: 0, lastOrder: o.timestamp };
+    }
+    customersMap[o.phone].spent += o.total;
+    customersMap[o.phone].orders += 1;
+    if(o.timestamp > customersMap[o.phone].lastOrder) customersMap[o.phone].lastOrder = o.timestamp;
+  });
+  const customersList = Object.values(customersMap);
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+       <div className="flex justify-between items-center mb-6">
+          <h3 className="text-lg font-bold text-gray-900">Customer Database</h3>
+          <div className="flex gap-2">
+             <input type="text" placeholder="Search customer..." className="border border-gray-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="text-gray-500 font-medium border-b border-gray-100">
+                <th className="pb-3">Customer Name</th>
+                <th className="pb-3">Phone Number</th>
+                <th className="pb-3">Total Orders</th>
+                <th className="pb-3">Total Spent</th>
+                <th className="pb-3">Last Order</th>
+                <th className="pb-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {customersList.map((c, i) => (
+                <tr key={i} className="hover:bg-gray-50">
+                  <td className="py-4 font-bold text-gray-900 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">
+                      {c.name.charAt(0)}
+                    </div>
+                    {c.name}
+                  </td>
+                  <td className="py-4 text-gray-600">{c.phone}</td>
+                  <td className="py-4 font-semibold text-gray-900">{c.orders}</td>
+                  <td className="py-4 font-bold text-green-600">RM {c.spent.toFixed(2)}</td>
+                  <td className="py-4 text-gray-500">{c.lastOrder.toLocaleDateString()}</td>
+                  <td className="py-4 text-right">
+                     <button className="text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded text-sm font-bold hover:bg-indigo-100 transition-colors">View Profile</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+    </div>
+  );
+}
+
+function AdminSettingsTab() {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 max-w-2xl">
+       <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2"><Settings className="text-gray-400" /> Store Settings</h3>
+       
+       <div className="space-y-5">
+         <div>
+           <label className="block text-sm font-semibold text-gray-700 mb-1.5">Store Name</label>
+           <input type="text" defaultValue="BADAR Kitchen" className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500" />
+         </div>
+         <div>
+           <label className="block text-sm font-semibold text-gray-700 mb-1.5">Business Address</label>
+           <textarea defaultValue="123 Jalan Ampang, Kuala Lumpur" rows="3" className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500"></textarea>
+         </div>
+         <div className="grid grid-cols-2 gap-4">
+           <div>
+             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Tax Rate (%)</label>
+             <input type="number" defaultValue="6" className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500" />
+           </div>
+           <div>
+             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Currency Symbol</label>
+             <input type="text" defaultValue="RM" className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500" />
+           </div>
+         </div>
+         <hr className="my-6 border-gray-100" />
+         <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-semibold text-gray-900">Accept Online Orders</h4>
+              <p className="text-xs text-gray-500">Enable or disable receiving new orders from the QR menu.</p>
+            </div>
+            <div className="w-12 h-6 bg-green-500 rounded-full relative cursor-pointer">
+              <div className="absolute top-1 left-7 w-4 h-4 bg-white rounded-full"></div>
+            </div>
+         </div>
+         <div className="pt-6">
+           <button className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-md shadow-indigo-600/20 hover:bg-indigo-700 transition-colors">
+             Save Changes
+           </button>
+         </div>
+       </div>
+    </div>
+  );
+}
+
+function KitchenOrdersTab({ orders }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+      <h3 className="text-xl font-bold text-gray-900 mb-6">Today's Order History</h3>
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="text-gray-500 font-medium border-b border-gray-100">
+            <th className="pb-3">Order ID</th>
+            <th className="pb-3">Items</th>
+            <th className="pb-3">Time</th>
+            <th className="pb-3">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {orders.map(order => (
+            <tr key={order.id} className="hover:bg-gray-50">
+              <td className="py-4 font-bold text-gray-900 text-lg">{order.id}</td>
+              <td className="py-4 text-gray-700 font-medium">
+                {order.items.map(i => `${i.qty}x ${i.name}`).join(', ')}
+              </td>
+              <td className="py-4 text-gray-500">{order.timestamp.toLocaleTimeString()}</td>
+              <td className="py-4"><StatusPill status={order.status} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function KitchenMenuTab({ menu, toggleMenuItem }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 max-w-3xl">
+      <h3 className="text-xl font-bold text-gray-900 mb-6">Menu Availability Status</h3>
+      <div className="space-y-4">
+        {menu.map(item => (
+          <div key={item.id} className="flex justify-between items-center py-4 border-b border-gray-50 last:border-0">
+            <div className="flex items-center gap-4">
+              <img src={item.img} alt="" className="w-16 h-16 rounded-xl object-cover" />
+              <div>
+                <h4 className={`text-lg font-bold ${item.available ? 'text-gray-900' : 'text-gray-400 line-through'}`}>{item.name}</h4>
+                <p className="text-sm text-gray-500">{item.category}</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => toggleMenuItem(item.id)}
+              className={`w-14 h-8 rounded-full relative transition-colors ${item.available ? 'bg-green-500' : 'bg-gray-300'}`}
+            >
+              <span className={`absolute top-1 left-1 bg-white w-6 h-6 rounded-full transition-transform ${item.available ? 'translate-x-6' : 'translate-x-0'}`}></span>
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function KitchenSettingsTab() {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 max-w-2xl">
+       <h3 className="text-xl font-bold text-gray-900 mb-6">Kitchen Display Settings</h3>
+       <div className="space-y-6">
+         <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
+            <div>
+              <h4 className="font-bold text-gray-900">Incoming Order Sound Alert</h4>
+              <p className="text-sm text-gray-500">Play a notification sound when a new order arrives.</p>
+            </div>
+            <div className="w-12 h-6 bg-green-500 rounded-full relative cursor-pointer">
+              <div className="absolute top-1 left-7 w-4 h-4 bg-white rounded-full"></div>
+            </div>
+         </div>
+         <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
+            <div>
+              <h4 className="font-bold text-gray-900">Auto-Print Receipts</h4>
+              <p className="text-sm text-gray-500">Automatically print order tickets to the kitchen printer.</p>
+            </div>
+            <div className="w-12 h-6 bg-gray-300 rounded-full relative cursor-pointer">
+              <div className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full"></div>
+            </div>
+         </div>
+       </div>
+    </div>
+  );
+}
